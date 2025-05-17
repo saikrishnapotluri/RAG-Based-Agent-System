@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+openai
+faiss-cpu
+numpy
+pip install sentence-transformers

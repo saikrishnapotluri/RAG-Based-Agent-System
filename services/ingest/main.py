@@ -1,45 +1,46 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, File, UploadFile
 from pydantic import BaseModel
-import uvicorn
+import httpx
 
-app = FastAPI(title="Document Ingestion Service")
+EMBED_SERVICE_URL = "http://127.0.0.1:8001/embed/"
 
-# Configuration
-def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50):
-    """
-    Splits `text` into chunks of approximately `chunk_size` characters
-    with `overlap` characters overlap between chunks.
-    """
-    if chunk_size <= 0:
-        raise ValueError("chunk_size must be positive")
+app = FastAPI()
 
-    chunks = []
-    start = 0
-    text_len = len(text)
-    while start < text_len:
-        end = min(start + chunk_size, text_len)
-        chunks.append(text[start:end])
-        start += chunk_size - overlap
-    return chunks
-
+@app.get("/", summary="Health check")
+async def health():
+    return {"status": "ok"}
 
 class Chunk(BaseModel):
     document_id: str
     chunk_index: int
     text: str
 
-@app.post("/upload/", summary="Upload document and split into chunks")
-async def upload_document(document: UploadFile = File(...)):
-    if document.content_type not in ["text/markdown", "text/plain"]:
-        raise HTTPException(status_code=400, detail="Unsupported file type")
+class ChunkResponse(BaseModel):
+    chunks: list[Chunk]
 
+@app.post("/upload/", response_model=ChunkResponse)
+async def upload(document: UploadFile = File(...)):
+    # 1) Read & split into fixed-size chunks
     content = (await document.read()).decode("utf-8")
-    chunks = chunk_text(content)
-    result = []
-    for i, txt in enumerate(chunks):
-        result.append(Chunk(document_id=document.filename, chunk_index=i, text=txt))
-    return {"chunks": [c.dict() for c in result]}
+    words = content.split()
+    chunk_size = 50
+    chunks: list[Chunk] = []
+    for i in range(0, len(words), chunk_size):
+        chunks.append(Chunk(
+            document_id=document.filename,
+            chunk_index=i // chunk_size,
+            text=" ".join(words[i : i + chunk_size])
+        ))
 
+    # 2) Send chunks off to the embed/indexing service
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            EMBED_SERVICE_URL,
+            json={"chunks": [c.dict() for c in chunks]},
+            timeout=30.0
+        )
+        resp.raise_for_status()
+        # you could grab resp.json()["indexed_ids"] here if you want
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # 3) Return the chunks to the caller
+    return ChunkResponse(chunks=chunks)
