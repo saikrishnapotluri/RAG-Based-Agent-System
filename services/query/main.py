@@ -3,6 +3,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import os, httpx, openai
+from transformers import pipeline
 
 # 1) URL of your embed/indexing service
 EMBED_QUERY_URL = "http://127.0.0.1:8001/query/"
@@ -12,8 +13,16 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 if not openai.api_key:
     raise RuntimeError("Missing OPENAI_API_KEY env var")
 
-# 3) LLM model to use
+# 3) Which LLM to use for the primary call
 LLM_MODEL = "gpt-3.5-turbo"
+
+# 4) Local fallback generator (GPT-2), only return the new text
+local_generator = pipeline(
+    "text-generation",
+    model="gpt2",
+    tokenizer="gpt2",
+    return_full_text=False,
+)
 
 app = FastAPI()
 
@@ -39,7 +48,7 @@ class AnswerResponse(BaseModel):
 # --- The /ask endpoint ---
 @app.post("/ask/", response_model=AnswerResponse)
 async def ask(req: AskRequest):
-    # 1) Retrieve top-k chunks from embed/indexing service
+    # 1) Retrieve top-k chunks
     async with httpx.AsyncClient() as client:
         r = await client.post(
             EMBED_QUERY_URL,
@@ -49,7 +58,7 @@ async def ask(req: AskRequest):
         r.raise_for_status()
         chunks = r.json()["results"]
 
-    # 2) Build the prompt with those chunks
+    # 2) Build the prompt
     context = "\n\n".join(
         f"[{c['document_id']}#{c['chunk_index']}] {c['text']}"
         for c in chunks
@@ -60,7 +69,7 @@ async def ask(req: AskRequest):
         f"Question: {req.query}\n\nAnswer concisely:"
     )
 
-    # 3) Call OpenAI, catching authentication & quota errors
+    # 3) Try OpenAI, fall back on GPT-2 if auth or quota fails
     try:
         resp = openai.chat.completions.create(
             model=LLM_MODEL,
@@ -71,14 +80,18 @@ async def ask(req: AskRequest):
             temperature=0.2,
         )
         answer = resp.choices[0].message.content.strip()
-    except openai.AuthenticationError:
-        # Invalid or missing API key
-        raise HTTPException(status_code=401, detail="Invalid OpenAI API key")
-    except openai.RateLimitError:
-        # Quota exhausted
-        raise HTTPException(status_code=503, detail="OpenAI quota exceeded. Please check your billing.")
 
-    # 4) Return the answer plus which chunks were used
+    except (openai.AuthenticationError, openai.RateLimitError):
+        # Fallback to local GPT-2 (only the new text!)
+        gen = local_generator(
+            prompt,
+            max_length=150,
+            truncation=True,
+            num_return_sequences=1
+        )[0]["generated_text"]
+        answer = gen.strip()
+
+    # 4) Return the answer + source chunks
     return AnswerResponse(
         answer=answer,
         source_chunks=[SourceChunk(**c) for c in chunks]
