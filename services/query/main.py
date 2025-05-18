@@ -1,16 +1,18 @@
+# services/query/main.py
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import os, httpx, openai
 
-# 1) URL of your embed/indexing service
+# 1) Where to fetch the chunks
 EMBED_QUERY_URL = "http://127.0.0.1:8001/query/"
 
-# 2) Load your key from the environment
+# 2) Load and validate your API key
 openai.api_key = os.getenv("OPENAI_API_KEY")
 if not openai.api_key:
     raise RuntimeError("Missing OPENAI_API_KEY env var")
 
-# 3) Model to use
+# 3) Which LLM to use
 LLM_MODEL = "gpt-3.5-turbo"
 
 app = FastAPI()
@@ -19,7 +21,7 @@ app = FastAPI()
 async def health():
     return {"status": "query-service up"}
 
-# --- Schemas ---
+# --- Request / Response schemas ---
 class AskRequest(BaseModel):
     query: str
     top_k: int = 3
@@ -34,10 +36,10 @@ class AnswerResponse(BaseModel):
     answer: str
     source_chunks: list[SourceChunk]
 
-# --- Endpoint ---
+# --- The /ask endpoint ---
 @app.post("/ask/", response_model=AnswerResponse)
 async def ask(req: AskRequest):
-    # 1) Fetch top-k chunks from embed/indexing
+    # 1) Retrieve top-k chunks
     async with httpx.AsyncClient() as client:
         r = await client.post(
             EMBED_QUERY_URL,
@@ -47,7 +49,7 @@ async def ask(req: AskRequest):
         r.raise_for_status()
         chunks = r.json()["results"]
 
-    # 2) Build prompt context
+    # 2) Build the LLM prompt
     context = "\n\n".join(
         f"[{c['document_id']}#{c['chunk_index']}] {c['text']}"
         for c in chunks
@@ -58,7 +60,7 @@ async def ask(req: AskRequest):
         f"Question: {req.query}\n\nAnswer concisely:"
     )
 
-    # 3) Call OpenAI, catching quota errors
+    # 3) Call OpenAI, catching a quota‐exhausted error
     try:
         resp = openai.chat.completions.create(
             model=LLM_MODEL,
@@ -75,7 +77,7 @@ async def ask(req: AskRequest):
             detail="OpenAI quota exceeded. Please check your plan or billing."
         )
 
-    # 4) Return the answer plus the source chunks
+    # 4) Return both the answer and the chunks used
     return AnswerResponse(
         answer=answer,
         source_chunks=[SourceChunk(**c) for c in chunks]
