@@ -1,5 +1,6 @@
 fastapi
-uvicorn[standard]
+pydantic
 httpx
 openai
-transformers torch
+transformers
+torch
