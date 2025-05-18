@@ -3,4 +3,5 @@ uvicorn[standard]
 openai
 faiss-cpu
 numpy
-pip install sentence-transformers
+sentence-transformers
+
