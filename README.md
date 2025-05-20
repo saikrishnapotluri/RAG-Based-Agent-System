@@ -5,28 +5,10 @@ An end-to-end Retrieval-Augmented Generation (RAG) microservices demo that inges
 
 
 ##  Repository Structure
+```text .
+├── services/ │ ├── ingest/ # Document ingestion & chunking service │ │ ├── Dockerfile │ │ ├── main.py │ │ └── requirements.txt │ ├── embed_indexing/ # Embeddings & FAISS indexing service │ │ ├── Dockerfile │ │ ├── main.py │ │ └── requirements.txt │ ├── query/ # Query router & prompt builder service │ │ ├── Dockerfile │ │ ├── main.py │ │ └── requirements.txt │ └── llm/ # LLM API wrapper service │ ├── Dockerfile │ ├── main.py │ └── requirements.txt ├── .env # Environment variables (API keys, URLs) ├── docker-compose.yml # Orchestrate all 4 services └── README.md # ← You are here
 
-├── services/
-│ ├── ingest/ # Document ingestion & chunking service
-│ │ ├── Dockerfile
-│ │ ├── main.py
-│ │ └── requirements.txt
-│ ├── embed_indexing/ # Embeddings & FAISS indexing service
-│ │ ├── Dockerfile
-│ │ ├── main.py
-│ │ └── requirements.txt
-│ ├── query/ # Query router & prompt builder service
-│ │ ├── Dockerfile
-│ │ ├── main.py
-│ │ └── requirements.txt
-│ └── llm/ # LLM API wrapper service
-│ ├── Dockerfile
-│ ├── main.py
-│ └── requirements.txt
-├── .env # Environment variables (API keys, URLs)
-├── docker-compose.yml # Orchestrate all 4 services
-└── README.md # ← You are here
-
+ ```
  Architecture Overview
 
 1. **Ingestion Service** (`/ingest`)  
