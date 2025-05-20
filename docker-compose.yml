@@ -1,0 +1,41 @@
+services:
+  ingest:
+    build:
+      context: ./services/ingest
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - EMBED_SERVICE_URL=http://embed_indexing:8002/embed
+    depends_on:
+      - embed_indexing
+
+  embed_indexing:
+    build:
+      context: ./services/embed_indexing
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8002"
+
+  query:
+    build:
+      context: ./services/query
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8003"
+    environment:
+      - EMBED_QUERY_URL=http://embed_indexing:8002/query
+      - LLM_SERVICE_URL=http://llm:8004/generate
+      - LLM_MODEL=gpt-3.5-turbo
+    depends_on:
+      - embed_indexing
+      - llm
+
+  llm:
+    build:
+      context: ./services/llm
+      dockerfile: Dockerfile
+    ports:
+      - "8004:8004"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
